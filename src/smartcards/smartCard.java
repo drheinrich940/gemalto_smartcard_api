@@ -1,6 +1,8 @@
 package smartcards;
 
+import java.lang.reflect.Array;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import javax.smartcardio.Card;
@@ -10,6 +12,7 @@ import javax.smartcardio.CardTerminal;
 import javax.smartcardio.CommandAPDU;
 import javax.smartcardio.ResponseAPDU;
 import javax.smartcardio.TerminalFactory;
+import javax.xml.bind.DatatypeConverter;
 
 /**
  * @author Guillaume
@@ -109,7 +112,7 @@ public class smartCard {
         }
     }
 
-    private static int read(CardChannel channel, int p2, int le) throws UnknownModeException, InvalidLenghtOfExpectedDataException, SecurityNotSatisfiedException, InvalidP2ParameterException, InvalidInstructionByteException, UnknownException {
+    private static byte[] read(CardChannel channel, int p2, int le) throws UnknownModeException, InvalidLenghtOfExpectedDataException, SecurityNotSatisfiedException, InvalidP2ParameterException, InvalidInstructionByteException, UnknownException {
         CommandAPDU command = new CommandAPDU(0x80, 0xBE, 0x00, p2, le);
         ResponseAPDU r;
         try {
@@ -119,7 +122,7 @@ public class smartCard {
             int SW1 = r.getSW1();
             if (SW1 == 144) {
                 System.out.println("Read successfully executed");
-                return 0;
+                return r.getData();
             } else if (SW1 == 101) throw new UnknownModeException("Error : Encoutered a memory error");
             else if (SW1 == 103)
                 throw new InvalidLenghtOfExpectedDataException("Error : Invalid lenght of expected data");
@@ -131,7 +134,7 @@ public class smartCard {
 
         } catch (CardException e) {
             e.printStackTrace();
-            return -1;
+            throw new UnknownException("Error : Encountered an unknown response to update attempt");
         }
     }
 
@@ -232,22 +235,23 @@ public class smartCard {
 
     private static void runTest2(CardChannel channel) {
 
-        int readResult = -1;
         try {
-            readResult = read(channel, 0x10, 0x40);
+            byte[] readResult = read(channel, 0x10, 0x40);
+            System.out.println(toString(readResult));
         } catch (UnknownModeException | InvalidLenghtOfExpectedDataException | SecurityNotSatisfiedException | InvalidP2ParameterException | InvalidInstructionByteException | UnknownException e) {
             System.out.println(e.getMessage());
         }
-        System.out.println(readResult);
+
         System.out.println("xxxxxxxxxxxxxxxxxxxxxxxxxxxx");
 
-        int authResult = -1;
+
         try {
-            authResult = authCSC(channel, 0, 234567);
+            int authResult = authCSC(channel, 0, 234567);
+            System.out.println(authResult);
         } catch (InvalidSecretCodeException | UnknownModeException | InvalidLcValueException | MaxPresentationExceededException | InvalidP2ParameterException | InvalidInstructionByteException | UnknownException | InvalidNumberOfDigitsException e) {
             System.out.println(e.getMessage());
         }
-        System.out.println(authResult);
+
         System.out.println("xxxxxxxxxxxxxxxxxxxxxxxxxxxx");
 
         String original = "drheinrich;passsword";
@@ -256,7 +260,41 @@ public class smartCard {
         String s = new String(b);
         System.out.println(s);
 
-        int amount = b.length / 4;
+        try {
+            int writeResult = update(channel, 0x10, 0x04, b);
+            System.out.println(writeResult);
+        } catch (MemoryErrorException | InvalidLcValueException | SecurityNotSatisfiedException | InvalidP2ParameterException | InvalidInstructionByteException | UnknownException e) {
+            e.printStackTrace();
+        }
+        System.out.println("xxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+
+
+        try {
+            byte[] readResult = read(channel, 0x10, 0x18);
+            int limit = 0;
+            check:
+            for(int i = 0; i < readResult.length; i ++){
+                if(readResult[i] == 0x00){
+                    limit = i;
+                    break check;
+                }
+            }
+
+            readResult = Arrays.copyOfRange(readResult, 0, limit);
+
+            System.out.println(toString(readResult));
+            String scr = new String(readResult);
+            System.out.println(scr);
+            scr.replace(" ","");
+            System.out.println(scr.length());
+        } catch (UnknownModeException | InvalidLenghtOfExpectedDataException | SecurityNotSatisfiedException | InvalidP2ParameterException | InvalidInstructionByteException | UnknownException e) {
+            System.out.println(e.getMessage());
+        }
+        System.out.println("xxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+
+        //String[] array = String.valueOf(readResult).split(" ", -1);
+
+        /*int amount = b.length / 4;
         int rest = b.length % 4;
         System.out.println(amount);
         System.out.println(rest);
@@ -275,10 +313,18 @@ public class smartCard {
             from += 4;
         }
         System.out.println(toString(Arrays.copyOfRange(b, from, from+rest)));
-        System.out.println(new String(Arrays.copyOfRange(b, from, from+rest)));
+        System.out.println(new String(Arrays.copyOfRange(b, from, from+rest)));*/
 
-        //phrase[0] = Arrays.copyOfRange(b, 0, 3);
+    }
 
+    public static byte[] hexStringToByteArray(String s) {
+        int len = s.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
+                    + Character.digit(s.charAt(i+1), 16));
+        }
+        return data;
     }
 
     static class InvalidNumberOfDigitsException extends Exception {
